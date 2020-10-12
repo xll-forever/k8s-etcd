@@ -1,0 +1,99 @@
+吃apiVersion: v1
+kind: Service
+metadata:
+  name: etcd-headless
+  namespace: liulei
+  labels:
+    app: etcd
+spec:
+  ports:
+  - port: 2380
+    name: etcd-server
+  - port: 2379
+    name: etcd-client
+  clusterIP: None
+  selector:
+    app: etcd
+  publishNotReadyAddresses: true
+--- 
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: etcd
+  name: etcd-svc
+  namespace: liulei
+spec:
+  ports:
+  - name: etcd-cluster
+    port: 2379
+    targetPort: 2379
+  selector:
+    app: etcd
+  sessionAffinity: None
+  type: NodePort
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: etcd
+  name: etcd
+  namespace: liulei
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: etcd
+  serviceName: etcd-headless
+  template:
+    metadata:
+      labels:
+        app: etcd
+      name: etcd
+    spec:
+      containers:
+        - env:
+          - name: MY_POD_NAME  #当前pod名
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: CLUSTER_NAMESPACE  #名称空间
+            valueFrom: 
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: SERVICE_NAME   #内部通信的无头服务名称
+            value: "etcd-headless"
+          - name: INITIAL_CLUSTER   #initial-cluster的值
+            value: "etcd-0=http://etcd-0.etcd-headless.liulei:2380,etcd-1=http://etcd-1.etcd-headless.liulei:2380,etcd-2=http://etcd-2.etcd-headless.liulei:2380"
+          image: registry.cn-hangzhou.aliyuncs.com/leige24/k8s-etcd:v1
+          imagePullPolicy: Always
+          name: etcd
+          ports:
+          - containerPort: 2380
+            name: peer
+            protocol: TCP
+          - containerPort: 2379
+            name: client
+            protocol: TCP
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "1000m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          volumeMounts:
+          - mountPath: /var/lib/etcd
+            name: data-etcd
+  updateStrategy:
+    type: OnDelete
+  volumeClaimTemplates:
+  - metadata:
+      name: data-etcd
+    spec:
+      accessModes: [ "ReadWriteMany" ]
+      storageClassName: storageclass-default
+      resources:
+        requests:
+          storage: 1Gi
